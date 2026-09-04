@@ -128,36 +128,6 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
         }
     };
 
-
-    private final XC_MethodHook writeHook = new XC_MethodHook() {
-        @Override
-        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-            if (!rulesReady || putOverrides == null || putOverrides.length() == 0) {
-                return;
-            }
-            if (param.args == null || param.args.length < 2 || !(param.args[0] instanceof String)) {
-                return;
-            }
-            String key = (String) param.args[0];
-            Object ruleValue = putOverrides.opt(key);
-            if (ruleValue == null) {
-                return;
-            }
-            String expectedType = resolveExpectedType(param.method, param.args[1]);
-            Object typed = coerceRuleValue(ruleValue, expectedType);
-            if (typed == null) {
-                fileLog("PUT ignored [" + key + "] (rule value '"
-                        + ruleValue + "' is not a valid " + expectedType + "); keeping original value.");
-                return;
-            }
-            fileLog("PUT [" + key + "] " + expectedType
-                    + " old=" + describeValue(param.args[1])
-                    + " -> new=" + describeValue(typed)
-                    + " (" + param.method.getDeclaringClass().getSimpleName() + "." + param.method.getName() + ")");
-            param.args[1] = typed;
-        }
-    };
-
     @Override
     public void handleLoadPackage(final LoadPackageParam lpparam) throws Throwable {
         if (lpparam.packageName == null || lpparam.processName == null) {
