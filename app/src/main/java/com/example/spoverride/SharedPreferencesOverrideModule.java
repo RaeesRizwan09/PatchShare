@@ -76,34 +76,58 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
         }
     }
 
-    private final XC_MethodHook readHook = new XC_MethodHook() {
+        private final XC_MethodHook readHook = new XC_MethodHook() {
         @Override
         protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-            if (!rulesReady || getOverrides == null || getOverrides.length() == 0) {
-                return;
-            }
-            if (param.args == null || param.args.length == 0 || !(param.args[0] instanceof String)) {
+            if (!rulesReady || param.args == null || param.args.length == 0 || !(param.args[0] instanceof String)) {
                 return;
             }
             String key = (String) param.args[0];
-            Object ruleValue = getOverrides.opt(key);
+            Object ruleValue = (getOverrides != null) ? getOverrides.opt(key) : null;
+            
             if (ruleValue == null) {
+                // DISCOVERY MODE: Print all unknown keys the app is reading
+                XposedBridge.log(TAG + " DISCOVERY (GET): App requested key -> [" + key + "] returning: " + describeValue(param.getResult()));
                 return;
             }
+            
             String expectedType = resolveExpectedType(param.method, param.getResult());
             Object typed = coerceRuleValue(ruleValue, expectedType);
-            if (typed == null) {
-                fileLog("GET ignored [" + key + "] (rule value '"
-                        + ruleValue + "' is not a valid " + expectedType + "); keeping original result.");
-                return;
+            if (typed != null) {
+                XposedBridge.log(TAG + " GET [" + key + "] " + expectedType
+                        + " old=" + describeValue(param.getResult())
+                        + " -> new=" + describeValue(typed));
+                param.setResult(typed);
             }
-            fileLog("GET [" + key + "] " + expectedType
-                    + " old=" + describeValue(param.getResult())
-                    + " -> new=" + describeValue(typed)
-                    + " (" + param.method.getDeclaringClass().getSimpleName() + "." + param.method.getName() + ")");
-            param.setResult(typed);
         }
     };
+
+    private final XC_MethodHook writeHook = new XC_MethodHook() {
+        @Override
+        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+            if (!rulesReady || param.args == null || param.args.length < 2 || !(param.args[0] instanceof String)) {
+                return;
+            }
+            String key = (String) param.args[0];
+            Object ruleValue = (putOverrides != null) ? putOverrides.opt(key) : null;
+            
+            if (ruleValue == null) {
+                // DISCOVERY MODE: Print all unknown keys the app is writing
+                XposedBridge.log(TAG + " DISCOVERY (PUT): App writing key -> [" + key + "] value: " + describeValue(param.args[1]));
+                return;
+            }
+            
+            String expectedType = resolveExpectedType(param.method, param.args[1]);
+            Object typed = coerceRuleValue(ruleValue, expectedType);
+            if (typed != null) {
+                XposedBridge.log(TAG + " PUT [" + key + "] " + expectedType
+                        + " old=" + describeValue(param.args[1])
+                        + " -> new=" + describeValue(typed));
+                param.args[1] = typed;
+            }
+        }
+    };
+
 
     private final XC_MethodHook writeHook = new XC_MethodHook() {
         @Override
