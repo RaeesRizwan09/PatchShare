@@ -1,0 +1,16 @@
+{
+  "get_overrides": {
+    "profile.display_name": "Override Alex",
+    "profile.beta_opt_in": true,
+    "analytics.session_count": 42,
+    "cache.max_size_bytes": 536870912,
+    "ui.theme_scale": 1.25
+  },
+  "put_overrides": {
+    "tutorial.completed": false,
+    "network.mock_enabled": true,
+    "feature.flag.banner": "experimental-banner-v3",
+    "sync.last_run_ms": 9999999999999,
+    "network.timeout_scale": 0.5
+  }
+}
