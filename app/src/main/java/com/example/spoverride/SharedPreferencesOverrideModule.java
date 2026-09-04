@@ -10,7 +10,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.lang.reflect.Method;
+import java.lang.reflect.Member;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
@@ -215,15 +215,15 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
         return section == null ? 0 : section.length();
     }
 
-    private static String resolveExpectedType(Method method, Object runtimeSample) {
+    private static String resolveExpectedType(Member member, Object runtimeSample) {
         String type = primitiveTypeOf(runtimeSample);
         if (type != null) {
             return type;
         }
-        if (method == null) {
+        if (member == null) {
             return null;
         }
-        return methodNameToType(method.getName());
+        return methodNameToType(member.getName());
     }
 
     private static String methodNameToType(String methodName) {
