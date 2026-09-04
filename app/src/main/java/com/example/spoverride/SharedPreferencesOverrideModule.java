@@ -198,25 +198,35 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
     }
 
     private void loadRules(Application app) throws IOException, org.json.JSONException {
+        String packageName = app.getPackageName();
+        java.io.File ruleFile = new java.io.File("/sdcard/Android/media/" + packageName + "/sp_rules.json");
+    
+        if (!ruleFile.exists()) {
+            throw new IOException("External rule file not found at: " + ruleFile.getAbsolutePath());
+        }
+    
         StringBuilder sb = new StringBuilder(4096);
-        try (InputStream is = app.getAssets().open(ASSET_FILE);
-             BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"))) {
+        try (BufferedReader reader = new BufferedReader(new java.io.FileReader(ruleFile))) {
             char[] buffer = new char[2048];
             int read;
             while ((read = reader.read(buffer)) != -1) {
                 sb.append(buffer, 0, read);
             }
         }
+        
         if (sb.length() == 0) {
-            throw new IOException("Asset '" + ASSET_FILE + "' is empty");
+            throw new IOException("Rule file '" + ruleFile.getAbsolutePath() + "' is empty");
         }
+        
         JSONObject root = new JSONObject(sb.toString());
         getOverrides = root.optJSONObject(SECTION_GET_OVERRIDES);
         putOverrides = root.optJSONObject(SECTION_PUT_OVERRIDES);
-        fileLog("Rules loaded from assets/" + ASSET_FILE
+        
+        XposedBridge.log(TAG + " Rules loaded from " + ruleFile.getAbsolutePath()
                 + " -> get_overrides=" + sectionSize(getOverrides)
                 + ", put_overrides=" + sectionSize(putOverrides));
     }
+
 
     private void installFrameworkHooks(Application app) {
         if (hooksInstalled) {
