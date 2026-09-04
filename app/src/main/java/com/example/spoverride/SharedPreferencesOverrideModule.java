@@ -7,10 +7,16 @@ import android.util.Log;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.Member;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
@@ -40,10 +46,35 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
     private static final String[] WRITE_METHODS =
             {"putString", "putBoolean", "putInt", "putLong", "putFloat"};
 
+    private static String logFilePath = null;
+
     private JSONObject getOverrides;
     private JSONObject putOverrides;
     private boolean rulesReady;
     private boolean hooksInstalled;
+
+    private static void fileLog(String message) {
+        String fullMessage = TAG + ": " + message;
+        XposedBridge.log(fullMessage);
+
+        if (logFilePath != null) {
+            try {
+                File logFile = new File(logFilePath);
+                File dir = logFile.getParentFile();
+                if (dir != null && !dir.exists()) {
+                    dir.mkdirs();
+                }
+                FileWriter fw = new FileWriter(logFile, true);
+                BufferedWriter bw = new BufferedWriter(fw);
+                String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
+                bw.write(timestamp + " " + fullMessage);
+                bw.newLine();
+                bw.close();
+            } catch (Throwable ignore) {
+                // Fail silently to prevent crashing the target app if storage is inaccessible
+            }
+        }
+    }
 
     private final XC_MethodHook readHook = new XC_MethodHook() {
         @Override
@@ -62,11 +93,11 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
             String expectedType = resolveExpectedType(param.method, param.getResult());
             Object typed = coerceRuleValue(ruleValue, expectedType);
             if (typed == null) {
-                XposedBridge.log(TAG + " GET  ignored [" + key + "] (rule value '"
+                fileLog("GET ignored [" + key + "] (rule value '"
                         + ruleValue + "' is not a valid " + expectedType + "); keeping original result.");
                 return;
             }
-            XposedBridge.log(TAG + " GET  [" + key + "] " + expectedType
+            fileLog("GET [" + key + "] " + expectedType
                     + " old=" + describeValue(param.getResult())
                     + " -> new=" + describeValue(typed)
                     + " (" + param.method.getDeclaringClass().getSimpleName() + "." + param.method.getName() + ")");
@@ -91,11 +122,11 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
             String expectedType = resolveExpectedType(param.method, param.args[1]);
             Object typed = coerceRuleValue(ruleValue, expectedType);
             if (typed == null) {
-                XposedBridge.log(TAG + " PUT  ignored [" + key + "] (rule value '"
+                fileLog("PUT ignored [" + key + "] (rule value '"
                         + ruleValue + "' is not a valid " + expectedType + "); keeping original value.");
                 return;
             }
-            XposedBridge.log(TAG + " PUT  [" + key + "] " + expectedType
+            fileLog("PUT [" + key + "] " + expectedType
                     + " old=" + describeValue(param.args[1])
                     + " -> new=" + describeValue(typed)
                     + " (" + param.method.getDeclaringClass().getSimpleName() + "." + param.method.getName() + ")");
@@ -113,8 +144,10 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
         if (!primaryProcess) {
             return;
         }
-        XposedBridge.log(TAG + " handleLoadPackage pkg=" + lpparam.packageName
-                + " process=" + lpparam.processName);
+
+        // Initialize target-specific log path in the zero-permission media directory
+        logFilePath = "/sdcard/Android/media/" + lpparam.packageName + "/sp_override_logs.txt";
+        fileLog("handleLoadPackage pkg=" + lpparam.packageName + " process=" + lpparam.processName);
 
         hookApplicationStartup(lpparam);
     }
@@ -130,8 +163,7 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
                 }
             });
         } catch (Throwable t) {
-            XposedBridge.log(TAG + " Could not hook Application.onCreate: "
-                    + Log.getStackTraceString(t));
+            fileLog("Could not hook Application.onCreate: " + Log.getStackTraceString(t));
         }
 
         try {
@@ -146,8 +178,7 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
                         }
                     });
         } catch (Throwable t) {
-            XposedBridge.log(TAG + " Could not hook Instrumentation.callApplicationOnCreate: "
-                    + Log.getStackTraceString(t));
+            fileLog("Could not hook Instrumentation.callApplicationOnCreate: " + Log.getStackTraceString(t));
         }
     }
 
@@ -159,9 +190,8 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
         try {
             loadRules(app);
         } catch (Throwable t) {
-            XposedBridge.log(TAG + " Overrides disabled: could not load 'assets/"
-                    + ASSET_FILE + "' from the application's asset manager. "
-                    + Log.getStackTraceString(t));
+            fileLog("Overrides disabled: could not load 'assets/" + ASSET_FILE 
+                    + "' from the application's asset manager. " + Log.getStackTraceString(t));
             return;
         }
         installFrameworkHooks(app);
@@ -183,7 +213,7 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
         JSONObject root = new JSONObject(sb.toString());
         getOverrides = root.optJSONObject(SECTION_GET_OVERRIDES);
         putOverrides = root.optJSONObject(SECTION_PUT_OVERRIDES);
-        XposedBridge.log(TAG + " Rules loaded from assets/" + ASSET_FILE
+        fileLog("Rules loaded from assets/" + ASSET_FILE
                 + " -> get_overrides=" + sectionSize(getOverrides)
                 + ", put_overrides=" + sectionSize(putOverrides));
     }
@@ -203,11 +233,9 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
                 XposedBridge.hookAllMethods(writeClass, methodName, writeHook);
             }
             hooksInstalled = true;
-            XposedBridge.log(TAG + " Hooks installed on " + FRAMEWORK_READ_CLASS
-                    + " and " + FRAMEWORK_WRITE_CLASS + ".");
+            fileLog("Hooks installed on " + FRAMEWORK_READ_CLASS + " and " + FRAMEWORK_WRITE_CLASS + ".");
         } catch (Throwable t) {
-            XposedBridge.log(TAG + " Could not install framework hooks: "
-                    + Log.getStackTraceString(t));
+            fileLog("Could not install framework hooks: " + Log.getStackTraceString(t));
         }
     }
 
@@ -278,9 +306,8 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
                 JSONObject descriptor = (JSONObject) ruleValue;
                 String declaredType = descriptor.optString("type", null);
                 Object declaredValue = descriptor.opt("value");
-                if (declaredType == null || declaredValue == null
-                        || JSONObject.NULL.equals(declaredValue)) {
-                    XposedBridge.log(TAG + " Invalid typed rule descriptor: " + descriptor);
+                if (declaredType == null || declaredValue == null || JSONObject.NULL.equals(declaredValue)) {
+                    fileLog("Invalid typed rule descriptor: " + descriptor);
                     return null;
                 }
                 targetType = declaredType;
@@ -290,8 +317,7 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
             }
             return convertPrimitive(raw.trim(), targetType);
         } catch (Throwable t) {
-            XposedBridge.log(TAG + " Could not coerce rule value '" + ruleValue + "' to "
-                    + expectedType + ": " + Log.getStackTraceString(t));
+            fileLog("Could not coerce rule value '" + ruleValue + "' to " + expectedType + ": " + Log.getStackTraceString(t));
             return null;
         }
     }
@@ -315,7 +341,7 @@ public class SharedPreferencesOverrideModule implements IXposedHookLoadPackage {
             case TYPE_FLOAT:
                 return Float.valueOf(raw);
             default:
-                XposedBridge.log(TAG + " Unsupported override type '" + type + "' (supported: "
+                fileLog("Unsupported override type '" + type + "' (supported: "
                         + TYPE_STRING + ", " + TYPE_BOOLEAN + ", " + TYPE_INTEGER + ", "
                         + TYPE_LONG + ", " + TYPE_FLOAT + ").");
                 return null;
