@@ -1,0 +1,73 @@
+name: Build Unsigned Release APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: "Version Code (leave empty to keep build.gradle default)"
+        required: false
+        type: string
+        default: ""
+      version_name:
+        description: "Version Name (leave empty to keep build.gradle default)"
+        required: false
+        type: string
+        default: ""
+      extra_gradle_args:
+        description: "Additional Gradle flags"
+        required: false
+        type: string
+        default: "--stacktrace"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Ensures gradlew exists even if omitted from repository source control
+      - name: Ensure Gradle Wrapper
+        run: |
+          if [ ! -f "gradlew" ]; then
+            echo "gradlew not found. Generating wrapper with Gradle 8.1.1..."
+            gradle wrapper --gradle-version 8.1.1
+          fi
+          chmod +x gradlew
+
+      - name: Build Release APK
+        run: |
+          GRADLE_CMD="./gradlew assembleRelease --no-daemon"
+
+          # Pass optional version overrides if specified in dispatch inputs
+          if [ -n "${{ inputs.version_code }}" ]; then
+            GRADLE_CMD="$GRADLE_CMD -Pandroid.injected.version.code=${{ inputs.version_code }}"
+          fi
+
+          if [ -n "${{ inputs.version_name }}" ]; then
+            GRADLE_CMD="$GRADLE_CMD -Pandroid.injected.version.name=${{ inputs.version_name }}"
+          fi
+
+          GRADLE_CMD="$GRADLE_CMD ${{ inputs.extra_gradle_args }}"
+
+          echo "Running: $GRADLE_CMD"
+          eval $GRADLE_CMD
+
+      - name: Upload Unsigned Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-unsigned
+          path: app/build/outputs/apk/release/*-unsigned.apk
+          if-no-files-found: error
+          
